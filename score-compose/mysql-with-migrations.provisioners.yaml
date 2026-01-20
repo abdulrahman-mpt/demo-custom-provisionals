@@ -17,7 +17,9 @@
         timeout: 2s
         retries: 10
       volumes:
-        - mysql-data:/var/lib/mysql
+        - type: volume
+          source: mysql-data
+          target: /var/lib/mysql
     
     mysql-init:
       image: mysql:8.0

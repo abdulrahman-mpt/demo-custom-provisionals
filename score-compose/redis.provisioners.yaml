@@ -18,7 +18,9 @@
         timeout: 3s
         retries: 5
       volumes:
-        - redis-data:/data
+        - type: volume
+          source: redis-data
+          target: /data
   
   state: |
     host: redis
