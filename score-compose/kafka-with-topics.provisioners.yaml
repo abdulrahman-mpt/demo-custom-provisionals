@@ -41,8 +41,10 @@
             sleep 1
           done &&
           echo 'Kafka is ready!' &&
+          {{- if .State.topics }}
           {{- range $key, $topic := .State.topics }}
           kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --topic {{ $topic }} --partitions {{ $.State.topicConfig.partitions | default 3 }} --replication-factor {{ $.State.topicConfig.replicationFactor | default 1 }} &&
+          {{- end }}
           {{- end }}
           echo 'All Kafka topics created!'
         "
@@ -55,7 +57,11 @@
   
   state: |
     brokers: ${.Params.brokers | default "kafka:9092"}
-    topics: ${.Params.topics | default {}}
+    {{- if .Params.topics }}
+    topics: ${.Params.topics}
+    {{- else }}
+    topics: {}
+    {{- end }}
     topicConfig:
       partitions: ${.Params.topicConfig.partitions | default 3}
       replicationFactor: ${.Params.topicConfig.replicationFactor | default 1}
