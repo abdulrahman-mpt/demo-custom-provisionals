@@ -57,7 +57,14 @@
   
   state: |
     brokers: ${.Params.brokers | default "kafka:9092"}
-    topics: ${.Params.topics}
+    {{- if .Params.topics }}
+    topics:
+      {{- range $key, $value := .Params.topics }}
+      {{ $key }}: {{ $value }}
+      {{- end }}
+    {{- else }}
+    topics: {}
+    {{- end }}
     topicConfig:
       partitions: ${.Params.topicConfig.partitions | default 3}
       replicationFactor: ${.Params.topicConfig.replicationFactor | default 1}
