@@ -1,0 +1,37 @@
+# Custom Redis provisioner with explicit configuration
+
+- uri: template://custom/redis
+  type: redis
+  services: |
+    redis:
+      image: redis:7-alpine
+      command: >
+        sh -c "
+          redis-server
+          {{- if .State.password }}
+          --requirepass ${.State.password}
+          {{- end }}
+        "
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 5s
+        timeout: 3s
+        retries: 5
+      volumes:
+        - redis-data:/data
+  
+  state: |
+    host: redis
+    port: "${.Params.port | default 6379}"
+    password: ${.Params.password | default ""}
+    database: "${.Params.database | default 0}"
+  
+  outputs: |
+    host: ${.State.host}
+    port: ${.State.port}
+    password: ${.State.password}
+    database: ${.State.database}
+  
+  shared: |
+    volumes:
+      redis-data:

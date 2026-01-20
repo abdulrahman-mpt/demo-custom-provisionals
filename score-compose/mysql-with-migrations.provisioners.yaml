@@ -1,0 +1,63 @@
+# Custom MySQL provisioner with automatic migration support
+# This provisioner creates a MySQL database and runs migrations before the app starts
+
+- uri: template://custom/mysql-with-migrations
+  type: mysql-with-migrations
+  services: |
+    mysql:
+      image: mysql:8.0
+      environment:
+        MYSQL_ROOT_PASSWORD: ${.State.rootPassword}
+        MYSQL_USER: ${.State.username}
+        MYSQL_PASSWORD: ${.State.password}
+        MYSQL_DATABASE: ${.State.database}
+      healthcheck:
+        test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${.State.username}", "-p${.State.password}"]
+        interval: 2s
+        timeout: 2s
+        retries: 10
+      volumes:
+        - mysql-data:/var/lib/mysql
+    
+    mysql-init:
+      image: mysql:8.0
+      environment:
+        MYSQL_HOST: mysql
+        MYSQL_PORT: "3306"
+        MYSQL_USER: ${.State.username}
+        MYSQL_PASSWORD: ${.State.password}
+        MYSQL_DATABASE: ${.State.database}
+        MIGRATIONS_PATH: /migrations
+      entrypoint: ["/bin/bash", "/scripts/init-db.sh"]
+      volumes:
+        - type: bind
+          source: ${.WorkloadDir}/migrations
+          target: /migrations
+        - type: bind
+          source: ${.WorkloadDir}/scripts/init-db.sh
+          target: /scripts/init-db.sh
+      depends_on:
+        mysql:
+          condition: service_healthy
+      labels:
+        dev.score.compose.labels.is-init-container: "true"
+      restart: "no"
+  
+  state: |
+    host: mysql
+    port: "3306"
+    username: ${.Params.username | default "appuser"}
+    password: ${.Params.password | default "apppassword123"}
+    database: ${.Params.database | default "appdb"}
+    rootPassword: ${.Params.rootPassword | default "rootpassword123"}
+  
+  outputs: |
+    host: ${.State.host}
+    port: ${.State.port}
+    username: ${.State.username}
+    password: ${.State.password}
+    database: ${.State.database}
+  
+  shared: |
+    volumes:
+      mysql-data:

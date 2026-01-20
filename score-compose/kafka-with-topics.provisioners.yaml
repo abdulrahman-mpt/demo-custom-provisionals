@@ -1,0 +1,65 @@
+# Custom Kafka provisioner with automatic topic creation
+# This provisioner creates Kafka and initializes topics before the app starts
+
+- uri: template://custom/kafka-with-topics
+  type: kafka-with-topics
+  services: |
+    zookeeper:
+      image: confluentinc/cp-zookeeper:latest
+      environment:
+        ZOOKEEPER_CLIENT_PORT: 2181
+        ZOOKEEPER_TICK_TIME: 2000
+      healthcheck:
+        test: ["CMD", "nc", "-z", "localhost", "2181"]
+        interval: 5s
+        timeout: 3s
+        retries: 5
+    
+    kafka:
+      image: confluentinc/cp-kafka:latest
+      depends_on:
+        zookeeper:
+          condition: service_healthy
+      environment:
+        KAFKA_BROKER_ID: 1
+        KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      healthcheck:
+        test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+    
+    kafka-init:
+      image: confluentinc/cp-kafka:latest
+      command: >
+        sh -c "
+          echo 'Waiting for Kafka to be ready...' &&
+          until kafka-broker-api-versions --bootstrap-server kafka:9092 &>/dev/null; do
+            sleep 1
+          done &&
+          echo 'Kafka is ready!' &&
+          {{- range $key, $topic := .State.topics }}
+          kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --topic {{ $topic }} --partitions {{ $.State.topicConfig.partitions | default 3 }} --replication-factor {{ $.State.topicConfig.replicationFactor | default 1 }} &&
+          {{- end }}
+          echo 'All Kafka topics created!'
+        "
+      depends_on:
+        kafka:
+          condition: service_healthy
+      labels:
+        dev.score.compose.labels.is-init-container: "true"
+      restart: "no"
+  
+  state: |
+    brokers: ${.Params.brokers | default "kafka:9092"}
+    topics: ${.Params.topics | default {}}
+    topicConfig:
+      partitions: ${.Params.topicConfig.partitions | default 3}
+      replicationFactor: ${.Params.topicConfig.replicationFactor | default 1}
+  
+  outputs: |
+    brokers: ${.State.brokers}
+    topics: ${.State.topics}

@@ -1,0 +1,165 @@
+# Custom MySQL provisioner with automatic migration support for Kubernetes
+# This provisioner creates a MySQL StatefulSet and runs migrations via InitContainer
+
+- uri: template://custom/mysql-with-migrations
+  type: mysql-with-migrations
+  resources: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: ${.WorkloadName}-mysql-secret
+    type: Opaque
+    stringData:
+      root-password: ${.State.rootPassword}
+      username: ${.State.username}
+      password: ${.State.password}
+      database: ${.State.database}
+    ---
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: ${.WorkloadName}-mysql-pvc
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+    ---
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: ${.WorkloadName}-mysql
+    spec:
+      serviceName: ${.WorkloadName}-mysql
+      replicas: 1
+      selector:
+        matchLabels:
+          app: ${.WorkloadName}-mysql
+      template:
+        metadata:
+          labels:
+            app: ${.WorkloadName}-mysql
+        spec:
+          initContainers:
+            - name: mysql-init
+              image: mysql:8.0
+              command: ["/bin/bash", "/scripts/init-db.sh"]
+              env:
+                - name: MYSQL_HOST
+                  value: "${.WorkloadName}-mysql"
+                - name: MYSQL_PORT
+                  value: "3306"
+                - name: MYSQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${.WorkloadName}-mysql-secret
+                      key: username
+                - name: MYSQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${.WorkloadName}-mysql-secret
+                      key: password
+                - name: MYSQL_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${.WorkloadName}-mysql-secret
+                      key: database
+                - name: MIGRATIONS_PATH
+                  value: "/migrations"
+              volumeMounts:
+                - name: migrations
+                  mountPath: /migrations
+                - name: scripts
+                  mountPath: /scripts
+          containers:
+            - name: mysql
+              image: mysql:8.0
+              env:
+                - name: MYSQL_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${.WorkloadName}-mysql-secret
+                      key: root-password
+                - name: MYSQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${.WorkloadName}-mysql-secret
+                      key: username
+                - name: MYSQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${.WorkloadName}-mysql-secret
+                      key: password
+                - name: MYSQL_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${.WorkloadName}-mysql-secret
+                      key: database
+              ports:
+                - containerPort: 3306
+                  name: mysql
+              volumeMounts:
+                - name: mysql-data
+                  mountPath: /var/lib/mysql
+              livenessProbe:
+                exec:
+                  command:
+                    - mysqladmin
+                    - ping
+                    - -h
+                    - localhost
+                    - -u
+                    - ${.State.username}
+                    - -p${.State.password}
+                initialDelaySeconds: 30
+                periodSeconds: 10
+              readinessProbe:
+                exec:
+                  command:
+                    - mysqladmin
+                    - ping
+                    - -h
+                    - localhost
+                    - -u
+                    - ${.State.username}
+                    - -p${.State.password}
+                initialDelaySeconds: 10
+                periodSeconds: 5
+          volumes:
+            - name: migrations
+              configMap:
+                name: ${.WorkloadName}-migrations
+            - name: scripts
+              configMap:
+                name: ${.WorkloadName}-migration-scripts
+            - name: mysql-data
+              persistentVolumeClaim:
+                claimName: ${.WorkloadName}-mysql-pvc
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${.WorkloadName}-mysql
+    spec:
+      selector:
+        app: ${.WorkloadName}-mysql
+      ports:
+        - port: 3306
+          targetPort: 3306
+          name: mysql
+  
+  state: |
+    host: ${.WorkloadName}-mysql
+    port: "3306"
+    username: ${.Params.username | default "appuser"}
+    password: ${.Params.password | default "apppassword123"}
+    database: ${.Params.database | default "appdb"}
+    rootPassword: ${.Params.rootPassword | default "rootpassword123"}
+  
+  outputs: |
+    host: ${.State.host}
+    port: ${.State.port}
+    username: ${.State.username}
+    password: ${.State.password}
+    database: ${.State.database}
